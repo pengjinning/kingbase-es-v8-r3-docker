@@ -1,111 +1,150 @@
-# 电科金仓Kingbase数据库
+# 使用步骤（使用本地 Docker 镜像包运行 KingbaseES V9）
 
-如果您想自己构建镜像可参照以下操作：
+本文档面向已下载官方 Docker 镜像包（.tar）和对应 license 的用户，提供从“导入镜像 → 运行容器 → 验证/连接 → 常见问题”的完整流程。
+
+## 环境准备
+
+- 已安装 Docker Desktop（macOS）
+- 在本项目目录内操作（路径位于 `/Users/...` 下，方便挂载）
+- 目录中已存在：
+	- `KingbaseES_V009R001C010B0004_x86_64_Docker.tar`
+	- `KingbaseES_V009R001C010B0004_aarch64_Docker.tar`
+	- 一个 V009R001C 对应的 license 文件（例如：`license_V009R001C-专业版.dat`，或标准版/开发版/企业版之一）
+
+可选：清理可能占用端口或重名的旧容器
 
 ```bash
-git clone https://github.com/renfei/kingbase-es-v8-r3-docker.git
-cd kingbase-es-v8-r3-docker
-docker build -t kingbase:v8r3 .
+docker ps
+docker rm -f kingbase kingbase9 2>/dev/null || true
 ```
 
-## 运行
+## 一、导入本地镜像（docker load）
+
+建议两个镜像都导入，后续按机器架构选择使用：
 
 ```bash
-docker run -d --name kingbase -p 54321:54321 -e SYSTEM_PWD=SYSTEM -v /opt/kingbase/data:/opt/kingbase/data -v /opt/kingbase/license.dat:/opt/kingbase/Server/bin/license.dat kingbase:v8r3
+# x86_64（Intel/AMD，或 Apple Silicon 需要 x86 兼容时）
+docker load -i KingbaseES_V009R001C010B0004_x86_64_Docker.tar
+
+# aarch64（Apple Silicon 原生优先使用）
+docker load -i KingbaseES_V009R001C010B0004_aarch64_Docker.tar
+
+# 检查是否成功加载镜像（关注 kingbase 相关行）
+docker images | grep -i kingbase
 ```
 
-- --name: 容器名称
-- -p: 端口映射
-- -e: 默认用户SYSTEM,通过环境变量SYSTEM_PWD指定初始化数据库时的默认用户密码
-- -v: 挂载宿主机的一个目录，这里挂载了数据目录和license文件
+常见加载后的镜像名与标签（以你本机实际输出为准）：
 
-### macOS 注意事项（挂载路径）
+- `kingbase_v009r001c010b0004_single_arm:v1`（aarch64）
+- `kingbase_v009r001c010b0004_single_x86:v1`（x86_64）
 
-在 macOS 上通过 Docker Desktop 运行容器时，默认仅允许挂载位于 `/Users`、`/Volumes`、`/private`、`/tmp` 等目录下的路径。如果直接挂载宿主机的 `/opt/...` 路径会出现 mounts denied 错误。
-
-有两种解决方式，推荐第 1 种：
-
-1) 使用当前项目目录下的路径进行挂载（推荐）
+## 二、准备数据目录与 license
 
 ```bash
-# 在项目根目录下创建数据目录
-mkdir -p ./data
-
-# 使用当前目录（$PWD）进行挂载，确保路径位于 /Users 下
-docker run -d \
-	--name kingbase \
-	-p 54321:54321 \
-	-e SYSTEM_PWD=SYSTEM \
-	-v "$PWD/data":/opt/kingbase/data \
-	-v "$PWD/license.dat":/opt/kingbase/Server/bin/license.dat:ro \
-	kingbase:v8r3
+# 使用项目目录作为数据持久化位置（避免 macOS mounts denied）
+mkdir -p ./data9
 ```
 
 说明：
-- `./data` 会持久化数据库数据；
-- 仓库根目录已包含 `license.dat`，以只读方式挂载到容器中的 `/opt/kingbase/Server/bin/license.dat`；
-- 使用双引号包裹 `$PWD/...` 以兼容路径中包含空格的情况（zsh/bash 皆适用）。
+- `./data9` 用于持久化数据库数据；
+- 仅挂载一个对应版本的 license 文件到容器内 `/opt/kingbase/Server/bin/license.dat`；
+- 建议以只读方式挂载 license（`:ro`）。
 
-2) 在 Docker Desktop 中共享 `/opt` 路径（可选）
+## 三、运行容器
 
-- 打开 Docker Desktop → Settings → Resources → File sharing；
-- 添加 `/opt/kingbase`（或 `/opt`）到共享列表并应用；
-- 然后可以继续使用原始命令：
+根据你的机器架构选择对应镜像，端口冲突可调整左侧宿主机端口（示例用 56432）。
 
-```bash
-docker run -d --name kingbase -p 54321:54321 -e SYSTEM_PWD=SYSTEM -v /opt/kingbase/data:/opt/kingbase/data -v /opt/kingbase/license.dat:/opt/kingbase/Server/bin/license.dat kingbase:v8r3
-```
-
-如果仍遇到权限问题，建议优先采用方案 1，或将挂载的宿主机目录的属主/权限进行适配。
-
-### Apple Silicon (M1/M2/M3) 架构说明（必须指定 amd64）
-
-Kingbase 提供的二进制为 x86_64 架构，Apple Silicon 默认拉取 arm64 基础镜像与运行架构，直接运行会出现如下错误：
-
-```
-rosetta error: failed to open elf at /lib64/ld-linux-x86-64.so.2
-Trace/breakpoint trap ./initdb
-```
-
-解决：构建与运行均指定 `linux/amd64`：
+### 1) Apple Silicon (M1/M2/M3)：优先使用 aarch64 镜像
 
 ```bash
-# 方式一：使用 buildx 构建并加载到本地
-docker buildx build --platform linux/amd64 -t kingbase:v8r3-amd64 . --load
-
-# 运行时同样指定平台（结合上面的挂载示例）
 docker run -d \
-	--platform linux/amd64 \
-	--name kingbase \
+	--name kingbase9 \
+	-p 56432:54321 \
+	-e SYSTEM_PWD=SYSTEM \
+	-v "$PWD/data9":/opt/kingbase/data \
+	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	kingbase_v009r001c010b0004_single_arm:v1
+```
+
+### 2) Intel/AMD x86_64 机器：使用 x86_64 镜像
+
+```bash
+docker run -d \
+	--name kingbase9 \
 	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
-	-v "$PWD/data":/opt/kingbase/data \
-	-v "$PWD/license.dat":/opt/kingbase/Server/bin/license.dat:ro \
-	kingbase:v8r3-amd64
-
-# 方式二：临时设定默认平台后用经典 build
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
-docker build -t kingbase:v8r3-amd64 .
+	-v "$PWD/data9":/opt/kingbase/data \
+	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	kingbase_v009r001c010b0004_single_x86:v1
 ```
 
-此外，本仓库的 `Dockerfile` 已固定为 `FROM --platform=linux/amd64 centos:7`，确保在 Apple Silicon 上也会基于 x86_64 基础镜像构建。
+### 3) Apple Silicon 但必须使用 x86_64 镜像（仿真运行）
 
-## 常见问题
-### 启动失败
-- 启动失败，日志报 kingbase: superuser_reserved_connections must be less than max_connections
-- 原因：本仓库中的 license.dat 文件是开发测试版，限制最大连接数为10，而人大金仓配置文件默认连接数为100，导致启动失败。
-- 解决：修改数据目录下的 kingbase.conf 配置文件
+```bash
+docker run -d \
+	--platform linux/amd64 \
+	--name kingbase9 \
+	-p 57432:54321 \
+	-e SYSTEM_PWD=SYSTEM \
+	-v "$PWD/data9":/opt/kingbase/data \
+	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	kingbase_v009r001c010b0004_single_x86:v1
+```
 
- ```bash
- max_connect = 10
- superuser_reserved_connections = 5 #小于max_connect
- super_manager_reserved_connections = 3  #小于superuser_reserved_connections
- ```
-### FATAL: lock file kingbase.pid already exists
-- 提示：FATAL: lock file kingbase.pid already exists。是因为 docker 容器被关闭了数据库还没来得及停机，我们去数据目录下把 kingbase.pid 文件删除掉即可，数据目录就是上面映射本机目录的，我的教程里是在 /opt/kingbase/data/。
+提示：
+- 使用双引号包裹 `$PWD/...` 以兼容路径中存在空格（zsh/bash 通用）。
+- macOS 仅允许挂载 `/Users`、`/Volumes`、`/private`、`/tmp` 等路径，推荐使用项目目录路径进行挂载。
 
+## 四、验证启动
+
+```bash
+docker logs -n 100 -f kingbase9
+```
+
+预期：初始化完成后容器保持运行，日志显示数据库已启动并监听容器内端口 `54321`。
+
+## 五、连接数据库
+
+- 端口：使用映射后的宿主机端口（示例：56432 / 54321 / 57432）
+- 用户名：`SYSTEM`
+- 密码：由 `-e SYSTEM_PWD=...` 传入（示例中为 `SYSTEM`）
+- 客户端：可使用 Kingbase 官方客户端或 JDBC 驱动
+
+可进入容器查看可用工具：
+
+```bash
+docker exec -it kingbase9 bash
+ls /opt/kingbase/Server/bin
+```
+
+## 六、停止/启动/删除容器（数据可复用）
+
+```bash
+# 停止
+docker stop kingbase9
+
+# 再次启动（复用同一数据目录）
+docker start kingbase9
+
+# 删除容器（不会删除 ./data9 数据）
+docker rm -f kingbase9
+```
+
+## 常见问题排查（FAQ）
+
+- mounts denied（挂载失败）
+	- 使用项目目录（位于 `/Users` 下）进行挂载，例如 `-v "$PWD/data9":/opt/kingbase/data`。
+- 端口被占用
+	- 更换宿主机端口（例如 `-p 56432:54321`）。
+- Apple Silicon 上出现 rosetta/ELF 错误
+	- 优先使用 aarch64 镜像；若必须使用 x86 镜像，在 `docker run` 时添加 `--platform linux/amd64`。
+- license 导致连接数限制（如提示 superuser_reserved_connections must be less than max_connections）
+	- 降低数据目录下 `kingbase.conf` 中相关参数，或更换更高授权的 license 文件。
+- 权限问题导致初始化失败
+	- 确保宿主机对挂载目录有读写权限，或使用 Docker 卷替代本地目录。
 
 ## 参考链接
 
-- [安装文件](https://www.kingbase.com.cn/download.html#database)
-- [授权文件](https://www.kingbase.com.cn/download.html#authorization?authorcurrV=V9R1C10)
+- [KingBase数据库Docker镜像下载](https://www.kingbase.com.cn/download.html#database)
+- [KingBase数据库授权文件下载](https://www.kingbase.com.cn/download.html#authorization?authorcurrV=V9R1C10)
+- [Docker安装人大金仓（电科金仓）KingbaseES](https://juejin.cn/post/7510277359401271332)
