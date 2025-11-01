@@ -1,4 +1,5 @@
-FROM centos:7
+# 在 Apple Silicon (ARM) 上运行时，需要使用 x86_64 (linux/amd64) 基础镜像
+FROM --platform=linux/amd64 centos:7
 MAINTAINER RenFei <i@renfei.net>
 
 RUN groupadd kingbase && useradd -g kingbase -m -d /opt/kingbase -s /bin/bash kingbase
