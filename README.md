@@ -52,17 +52,22 @@ mkdir -p ./data9
 
 ## 三、运行容器
 
-根据你的机器架构选择对应镜像，端口冲突可调整左侧宿主机端口（示例用 56432）。
+根据你的机器架构选择对应镜像，端口冲突可调整左侧宿主机端口（示例用 54321）。
 
 ### 1) Apple Silicon (M1/M2/M3)：优先使用 aarch64 镜像
 
 ```bash
 docker run -d \
 	--name kingbase9 \
-	-p 56432:54321 \
+	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
 	-v "$PWD/data9":/opt/kingbase/data \
-	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+    -e DB_MODE=mysql  \
+    -e ENABLE_CI=yes  \
+    -e NEED_START=always  \
+    -e DB_USER=root  \
+    -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_arm:v1
 ```
 
@@ -74,7 +79,12 @@ docker run -d \
 	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
 	-v "$PWD/data9":/opt/kingbase/data \
-	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+    -e DB_MODE=mysql  \
+    -e ENABLE_CI=yes  \
+    -e NEED_START=always  \
+    -e DB_USER=root  \
+    -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_x86:v1
 ```
 
@@ -84,10 +94,15 @@ docker run -d \
 docker run -d \
 	--platform linux/amd64 \
 	--name kingbase9 \
-	-p 57432:54321 \
+	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
 	-v "$PWD/data9":/opt/kingbase/data \
-	-v "$PWD/license_V009R001C-开发版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
+    -e DB_MODE=mysql  \
+    -e ENABLE_CI=yes  \
+    -e NEED_START=always  \
+    -e DB_USER=root  \
+    -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_x86:v1
 ```
 
@@ -105,7 +120,7 @@ docker logs -n 100 -f kingbase9
 
 ## 五、连接数据库
 
-- 端口：使用映射后的宿主机端口（示例：56432 / 54321 / 57432）
+- 端口：使用映射后的宿主机端口（示例：54321 / 54321 / 54321）
 - 用户名：`SYSTEM`
 - 密码：由 `-e SYSTEM_PWD=...` 传入（示例中为 `SYSTEM`）
 - 客户端：可使用 Kingbase 官方客户端或 JDBC 驱动
@@ -135,13 +150,31 @@ docker rm -f kingbase9
 - mounts denied（挂载失败）
 	- 使用项目目录（位于 `/Users` 下）进行挂载，例如 `-v "$PWD/data9":/opt/kingbase/data`。
 - 端口被占用
-	- 更换宿主机端口（例如 `-p 56432:54321`）。
+	- 更换宿主机端口（例如 `-p 54321:54321`）。
 - Apple Silicon 上出现 rosetta/ELF 错误
 	- 优先使用 aarch64 镜像；若必须使用 x86 镜像，在 `docker run` 时添加 `--platform linux/amd64`。
 - license 导致连接数限制（如提示 superuser_reserved_connections must be less than max_connections）
 	- 降低数据目录下 `kingbase.conf` 中相关参数，或更换更高授权的 license 文件。
 - 权限问题导致初始化失败
 	- 确保宿主机对挂载目录有读写权限，或使用 Docker 卷替代本地目录。
+- 容器日志反复出现 “sudo: pam_open_session: Permission denied / policy plugin failed session initialization”
+	- 现象：数据库已正常启动，但日志中每次调用 sudo 都打印该告警，常见于 openEuler 基础镜像且容器内未启用完整 PAM 会话。
+	- 影响：不影响数据库服务，属非致命告警；若想消除日志噪音，可在容器内禁用 sudo 的 PAM 会话钩子。
+	- 处理（任选其一）：
+		1) 临时（当前容器生效）：
+			- 以 root 进入容器并追加配置（会自动备份 `/etc/sudoers`）：
+
+			```bash
+			docker exec -u root kingbase9 sh -lc 'cp /etc/sudoers /etc/sudoers.bak && printf "\nDefaults !pam_session\n" >> /etc/sudoers'
+			```
+
+			- 可选验证（应无错误输出）：
+
+			```bash
+			docker exec -u root kingbase9 sh -lc 'sudo -n true'
+			```
+		2) 持久化（重建容器也生效）：基于官方镜像自建一个自定义镜像，在 Dockerfile 中添加 `echo "Defaults !pam_session" >> /etc/sudoers`，或解注释 `/etc/sudoers` 末尾的 `#includedir /etc/sudoers.d` 并向该目录投放禁用项。
+	- 注意：编辑 sudoers 建议使用最小变更并保留备份；若使用 `includedir`，需确保 `/etc/sudoers` 末尾已取消注释。
 
 ## 参考链接
 
