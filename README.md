@@ -65,7 +65,7 @@ docker run -d \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
-    -e NEED_START=always  \
+    -e NEED_START=yes  \
     -e DB_USER=root  \
     -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_arm:v1
@@ -82,7 +82,7 @@ docker run -d \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
-    -e NEED_START=always  \
+    -e NEED_START=yes  \
     -e DB_USER=root  \
     -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_x86:v1
@@ -100,7 +100,7 @@ docker run -d \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
-    -e NEED_START=always  \
+    -e NEED_START=yes  \
     -e DB_USER=root  \
     -e DB_PASSWORD=r8FqfdbWUaN3 \
 	kingbase_v009r001c010b0004_single_x86:v1
@@ -109,6 +109,7 @@ docker run -d \
 提示：
 - 使用双引号包裹 `$PWD/...` 以兼容路径中存在空格（zsh/bash 通用）。
 - macOS 仅允许挂载 `/Users`、`/Volumes`、`/private`、`/tmp` 等路径，推荐使用项目目录路径进行挂载。
+ - 本镜像的数据目录与 license 挂载路径保持为 `/opt/kingbase/data` 与 `/opt/kingbase/Server/bin/license.dat`，无需修改；客户端工具位于 `/home/kingbase/install/kingbase/bin`。
 
 ## 四、验证启动
 
@@ -120,7 +121,7 @@ docker logs -n 100 -f kingbase9
 
 ## 五、连接数据库
 
-- 端口：使用映射后的宿主机端口（示例：54321 / 54321 / 54321）
+- 端口：使用映射后的宿主机端口
 - 用户名：`SYSTEM`
 - 密码：由 `-e SYSTEM_PWD=...` 传入（示例中为 `SYSTEM`）
 - 客户端：可使用 Kingbase 官方客户端或 JDBC 驱动
@@ -129,8 +130,59 @@ docker logs -n 100 -f kingbase9
 
 ```bash
 docker exec -it kingbase9 bash
-ls /opt/kingbase/Server/bin
+ls /home/kingbase/install/kingbase/bin
 ```
+
+### （可选）容器已启动后手动创建数据库
+
+如果容器已正常运行，但需要新增一个业务库（例如创建名为 bytedesk 的数据库），可以直接在容器内执行命令，常见有两种方式：
+
+- 交互式（推荐，避免明文密码）：
+
+```bash
+docker exec -it kingbase9 /home/kingbase/install/kingbase/bin/createdb \
+  -h 127.0.0.1 -p 54321 \
+  -U root --maintenance-db=kingbase \
+  -E UTF8 -O root bytedesk
+# 出现 Password: 时输入 r8FqfdbWUaN3
+```
+
+- 非交互式（一次性执行，自动喂密码）：
+
+```bash
+docker exec -i kingbase9 sh -lc 'printf "r8FqfdbWUaN3\n" | /home/kingbase/install/kingbase/bin/createdb \
+  -h 127.0.0.1 -p 54321 -U root --maintenance-db=kingbase -W \
+  -E UTF8 -O root bytedesk'
+```
+
+- 用 SQL 方式也行（连接到 kingbase 再建库）：
+
+```bash
+docker exec -i kingbase9 sh -lc 'printf "r8FqfdbWUaN3\n" | /home/kingbase/install/kingbase/bin/ksql \
+  -h 127.0.0.1 -p 54321 -U root -d kingbase -W \
+  -c "CREATE DATABASE bytedesk WITH ENCODING '\''UTF8'\'' TEMPLATE template1 OWNER root;"'
+```
+
+- 验证一下数据库是否已建
+
+```bash
+docker exec -i kingbase9 sh -lc 'printf "r8FqfdbWUaN3\n" | /home/kingbase/install/kingbase/bin/ksql \
+  -h 127.0.0.1 -p 54321 -U root -W -l | grep -E "bytedesk|kingbase"'
+```
+
+- 连接到新库
+
+```bash
+docker exec -it kingbase9 /home/kingbase/install/kingbase/bin/ksql \
+  -h 127.0.0.1 -p 54321 -U root -d bytedesk
+# Password: 输入 r8FqfdbWUaN3
+```
+
+提示：
+- 上述命令假设容器内数据库监听 54321 端口，管理员用户为 SYSTEM，密码来自启动参数 `-e SYSTEM_PWD=...`。
+- 这两种方式与环境变量 `DB_MODE/DB_USER/DB_PASSWORD` 无直接关系；它们不会自动创建业务库。
+ - 不同镜像/版本的客户端二进制路径可能不同。本仓库随附的 V9 单机镜像中，客户端位于 `/home/kingbase/install/kingbase/bin`（可通过 `docker exec kingbase9 which ksql` 验证）。
+ - 如需非交互式执行（避免密码提示），可在你的终端直接运行并自行输入密码，或使用连接串/密码文件方式；若不确定密码，请使用交互式方式以免认证失败。
 
 ## 六、停止/启动/删除容器（数据可复用）
 
