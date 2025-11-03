@@ -38,19 +38,7 @@ docker images | grep -i kingbase
 - `kingbase_v009r001c010b0004_single_arm:v1`（aarch64）
 - `kingbase_v009r001c010b0004_single_x86:v1`（x86_64）
 
-## 二、准备数据目录与 license
-
-```bash
-# 使用项目目录作为数据持久化位置（避免 macOS mounts denied）
-mkdir -p ./data9
-```
-
-说明：
-- `./data9` 用于持久化数据库数据；
-- 仅挂载一个对应版本的 license 文件到容器内 `/opt/kingbase/Server/bin/license.dat`；
-- 建议以只读方式挂载 license（`:ro`）。
-
-## 三、运行容器
+## 二、运行容器
 
 根据你的机器架构选择对应镜像，端口冲突可调整左侧宿主机端口（示例用 54321）。
 
@@ -61,7 +49,7 @@ docker run -d \
 	--name kingbase9 \
 	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
-	-v "$PWD/data9":/opt/kingbase/data \
+	-v bytedesk_kingbase_data:/opt/kingbase/data \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
@@ -78,7 +66,7 @@ docker run -d \
 	--name kingbase9 \
 	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
-	-v "$PWD/data9":/opt/kingbase/data \
+	-v bytedesk_kingbase_data:/opt/kingbase/data \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
@@ -96,7 +84,7 @@ docker run -d \
 	--name kingbase9 \
 	-p 54321:54321 \
 	-e SYSTEM_PWD=SYSTEM \
-	-v "$PWD/data9":/opt/kingbase/data \
+	-v bytedesk_kingbase_data:/opt/kingbase/data \
 	-v "$PWD/license_V009R001C-专业版.dat":/opt/kingbase/Server/bin/license.dat:ro \
     -e DB_MODE=mysql  \
     -e ENABLE_CI=yes  \
@@ -111,7 +99,17 @@ docker run -d \
 - macOS 仅允许挂载 `/Users`、`/Volumes`、`/private`、`/tmp` 等路径，推荐使用项目目录路径进行挂载。
  - 本镜像的数据目录与 license 挂载路径保持为 `/opt/kingbase/data` 与 `/opt/kingbase/Server/bin/license.dat`，无需修改；客户端工具位于 `/home/kingbase/install/kingbase/bin`。
 
-## 四、验证启动
+
+```bash
+# 列出所有卷
+docker volume ls
+
+# 删除命名卷（需先停止并删除使用该卷的容器；删除后数据不可恢复，谨慎）
+docker rm -f kingbase9
+docker volume rm bytedesk_kingbase_data
+```
+
+## 三、验证启动
 
 ```bash
 docker logs -n 100 -f kingbase9
@@ -119,7 +117,7 @@ docker logs -n 100 -f kingbase9
 
 预期：初始化完成后容器保持运行，日志显示数据库已启动并监听容器内端口 `54321`。
 
-## 五、连接数据库
+## 四、连接数据库
 
 - 端口：使用映射后的宿主机端口
 - 用户名：`SYSTEM`
@@ -184,7 +182,7 @@ docker exec -it kingbase9 /home/kingbase/install/kingbase/bin/ksql \
  - 不同镜像/版本的客户端二进制路径可能不同。本仓库随附的 V9 单机镜像中，客户端位于 `/home/kingbase/install/kingbase/bin`（可通过 `docker exec kingbase9 which ksql` 验证）。
  - 如需非交互式执行（避免密码提示），可在你的终端直接运行并自行输入密码，或使用连接串/密码文件方式；若不确定密码，请使用交互式方式以免认证失败。
 
-## 六、停止/启动/删除容器（数据可复用）
+## 五、停止/启动/删除容器（数据可复用）
 
 ```bash
 # 停止
@@ -195,6 +193,10 @@ docker start kingbase9
 
 # 删除容器（不会删除 ./data9 数据）
 docker rm -f kingbase9
+
+# 如果使用的是命名卷 bytedesk_kingbase_data，并且需要同时清理数据：
+# 注意：删除卷会永久删除数据库数据，请先做好备份
+docker volume rm bytedesk_kingbase_data
 ```
 
 ## 常见问题排查（FAQ）
